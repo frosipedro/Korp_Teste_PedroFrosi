@@ -1,0 +1,64 @@
+<div class="page-header">
+  <h1>{{ isEdit ? 'Editar Produto' : 'Novo Produto' }}</h1>
+</div>
+
+<mat-card class="form-card">
+  <mat-card-content>
+    <form [formGroup]="form" (ngSubmit)="submit()" class="form-grid">
+      <mat-form-field appearance="outline">
+        <mat-label>Código</mat-label>
+        <input matInput formControlName="code" placeholder="Ex: PROD-001" />
+        <mat-error *ngIf="form.get('code')?.hasError('required')"
+          >Código é obrigatório.</mat-error
+        >
+        <mat-error *ngIf="form.get('code')?.hasError('maxlength')"
+          >Máximo 50 caracteres.</mat-error
+        >
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Descrição</mat-label>
+        <input
+          matInput
+          formControlName="description"
+          placeholder="Ex: Notebook Dell Inspiron"
+        />
+        <mat-error *ngIf="form.get('description')?.hasError('required')"
+          >Descrição é obrigatória.</mat-error
+        >
+        <mat-error *ngIf="form.get('description')?.hasError('maxlength')"
+          >Máximo 255 caracteres.</mat-error
+        >
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Saldo Inicial</mat-label>
+        <input matInput type="number" formControlName="balance" min="0" />
+        <mat-error *ngIf="form.get('balance')?.hasError('min')"
+          >Saldo não pode ser negativo.</mat-error
+        >
+      </mat-form-field>
+
+      <div class="form-actions">
+        <button mat-stroked-button type="button" routerLink="/products">
+          <mat-icon>arrow_back</mat-icon>
+          Cancelar
+        </button>
+        <button
+          mat-raised-button
+          color="primary"
+          type="submit"
+          [disabled]="form.invalid || (loading$ | async)"
+        >
+          <mat-spinner
+            *ngIf="loading$ | async"
+            diameter="18"
+            style="display: inline-block; margin-right: 8px"
+          />
+          <mat-icon *ngIf="!(loading$ | async)">save</mat-icon>
+          {{ isEdit ? 'Salvar' : 'Criar' }}
+        </button>
+      </div>
+    </form>
+  </mat-card-content>
+</mat-card>

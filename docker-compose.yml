@@ -1,0 +1,87 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: invoice-postgres
+    environment:
+      POSTGRES_USER: invoice_user
+      POSTGRES_PASSWORD: invoice_pass
+      POSTGRES_DB: invoice_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/inventory/migrations/001_create_products.sql:/docker-entrypoint-initdb.d/01_create_products.sql
+      - ./services/billing/migrations/001_create_invoices.sql:/docker-entrypoint-initdb.d/02_create_invoices.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U invoice_user -d invoice_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - invoice-net
+
+  inventory:
+    build:
+      context: ./services/inventory
+      dockerfile: Dockerfile
+    container_name: invoice-inventory
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      DB_NAME: invoice_db
+      PORT: 8081
+    ports:
+      - '8081:8081'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - invoice-net
+
+  billing:
+    build:
+      context: ./services/billing
+      dockerfile: Dockerfile
+    container_name: invoice-billing
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      DB_NAME: invoice_db
+      PORT: 8082
+      INVENTORY_URL: http://inventory:8081
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - '8082:8082'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inventory:
+        condition: service_started
+    networks:
+      - invoice-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: invoice-frontend
+    ports:
+      - '4200:80'
+    depends_on:
+      - inventory
+      - billing
+    networks:
+      - invoice-net
+
+volumes:
+  postgres_data:
+
+networks:
+  invoice-net:
+    driver: bridge

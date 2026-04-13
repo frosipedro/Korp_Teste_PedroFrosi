@@ -1,0 +1,67 @@
+<div class="page-header">
+  <h1>Notas Fiscais</h1>
+  <a mat-raised-button color="primary" routerLink="/invoices/new">
+    <mat-icon>add</mat-icon>
+    Nova Nota
+  </a>
+</div>
+
+<div *ngIf="loading$ | async" class="spinner-container">
+  <mat-spinner diameter="40" />
+</div>
+
+<table
+  mat-table
+  [dataSource]="invoices"
+  class="mat-elevation-z2 full-width"
+  *ngIf="!(loading$ | async)"
+>
+  <ng-container matColumnDef="number">
+    <th mat-header-cell *matHeaderCellDef>Número</th>
+    <td mat-cell *matCellDef="let inv">#{{ inv.number }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="status">
+    <th mat-header-cell *matHeaderCellDef>Status</th>
+    <td mat-cell *matCellDef="let inv">
+      <mat-chip
+        [color]="inv.status === 'closed' ? 'warn' : 'primary'"
+        highlighted
+      >
+        {{ inv.status === 'closed' ? 'Fechada' : 'Aberta' }}
+      </mat-chip>
+    </td>
+  </ng-container>
+
+  <ng-container matColumnDef="created_at">
+    <th mat-header-cell *matHeaderCellDef>Criada em</th>
+    <td mat-cell *matCellDef="let inv">
+      {{ inv.created_at | date: 'dd/MM/yyyy HH:mm' }}
+    </td>
+  </ng-container>
+
+  <ng-container matColumnDef="actions">
+    <th mat-header-cell *matHeaderCellDef>Ações</th>
+    <td mat-cell *matCellDef="let inv">
+      <button
+        mat-icon-button
+        color="primary"
+        (click)="print(inv)"
+        [disabled]="inv.status === 'closed' || isPrinting(inv.id)"
+        matTooltip="Imprimir nota"
+      >
+        <mat-spinner *ngIf="isPrinting(inv.id)" diameter="20" />
+        <mat-icon *ngIf="!isPrinting(inv.id)">print</mat-icon>
+      </button>
+    </td>
+  </ng-container>
+
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+
+  <tr class="mat-row" *matNoDataRow>
+    <td class="mat-cell empty-row" colspan="4">
+      Nenhuma nota fiscal cadastrada.
+    </td>
+  </tr>
+</table>

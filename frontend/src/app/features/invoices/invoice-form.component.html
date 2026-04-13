@@ -1,0 +1,126 @@
+<div class="page-header">
+  <h1>Nova Nota Fiscal</h1>
+</div>
+
+<mat-card class="form-card">
+  <mat-card-content>
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <!-- AI Description -->
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Descrição da nota (sugestão IA)</mat-label>
+        <input
+          matInput
+          formControlName="description"
+          placeholder="Ex: materiais de escritório"
+        />
+        <mat-hint
+          >Digite para receber sugestões automáticas de produtos.</mat-hint
+        >
+      </mat-form-field>
+
+      <!-- AI Suggestions -->
+      <div *ngIf="suggesting$ | async" class="suggestion-spinner">
+        <mat-spinner diameter="20" />
+        <span>Buscando sugestões...</span>
+      </div>
+
+      <div
+        *ngIf="suggestions.length > 0 && !(suggesting$ | async)"
+        class="suggestions"
+      >
+        <p class="suggestions-label">Sugestões IA — clique para adicionar:</p>
+        <mat-chip-set>
+          <mat-chip
+            *ngFor="let s of suggestions"
+            (click)="applySuggestion(s)"
+            style="cursor: pointer"
+          >
+            <mat-icon matChipAvatar>auto_awesome</mat-icon>
+            {{ s }}
+          </mat-chip>
+        </mat-chip-set>
+      </div>
+
+      <mat-divider style="margin: 24px 0" />
+
+      <!-- Items -->
+      <div class="items-header">
+        <h3>Produtos</h3>
+        <button mat-stroked-button type="button" (click)="addItem()">
+          <mat-icon>add</mat-icon>
+          Adicionar Produto
+        </button>
+      </div>
+
+      <div formArrayName="items">
+        <div
+          *ngFor="let item of items.controls; let i = index"
+          [formGroupName]="i"
+          class="item-row mat-elevation-z1"
+        >
+          <!-- Product selector -->
+          <mat-form-field appearance="outline">
+            <mat-label>Produto</mat-label>
+            <select
+              matNativeControl
+              formControlName="product_id"
+              (change)="selectProduct(i, +$any($event.target).value)"
+            >
+              <option value="">Selecione...</option>
+              <option *ngFor="let p of products" [value]="p.id">
+                {{ p.code }} — {{ p.description }}
+              </option>
+            </select>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Descrição</mat-label>
+            <input matInput formControlName="description" />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" style="width: 100px">
+            <mat-label>Qtd</mat-label>
+            <input matInput type="number" formControlName="quantity" min="1" />
+          </mat-form-field>
+
+          <button
+            mat-icon-button
+            color="warn"
+            type="button"
+            (click)="removeItem(i)"
+            matTooltip="Remover"
+          >
+            <mat-icon>remove_circle_outline</mat-icon>
+          </button>
+        </div>
+      </div>
+
+      <p *ngIf="items.length === 0" class="empty-items">
+        Nenhum produto adicionado.
+      </p>
+
+      <mat-divider style="margin: 24px 0" />
+
+      <div class="form-actions">
+        <button mat-stroked-button type="button" routerLink="/invoices">
+          <mat-icon>arrow_back</mat-icon>
+          Cancelar
+        </button>
+        <button
+          mat-raised-button
+          color="primary"
+          type="submit"
+          [disabled]="form.invalid || items.length === 0 || (loading$ | async)"
+        >
+          <mat-spinner
+            *ngIf="loading$ | async"
+            diameter="18"
+            style="display: inline-block; margin-right: 8px"
+          />
+          <mat-icon *ngIf="!(loading$ | async)">save</mat-icon>
+          Criar Nota
+        </button>
+      </div>
+    </form>
+  </mat-card-content>
+</mat-card>

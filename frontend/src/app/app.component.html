@@ -1,0 +1,22 @@
+<mat-toolbar color="primary">
+  <mat-icon>receipt_long</mat-icon>
+  <span style="margin-left: 8px; font-weight: 600"
+    >Sistema de Notas Fiscais</span
+  >
+
+  <span style="flex: 1"></span>
+
+  <a mat-button routerLink="/products" routerLinkActive="active-link">
+    <mat-icon>inventory_2</mat-icon>
+    Produtos
+  </a>
+
+  <a mat-button routerLink="/invoices" routerLinkActive="active-link">
+    <mat-icon>description</mat-icon>
+    Notas Fiscais
+  </a>
+</mat-toolbar>
+
+<main style="padding: 24px; max-width: 1200px; margin: 0 auto">
+  <router-outlet />
+</main>

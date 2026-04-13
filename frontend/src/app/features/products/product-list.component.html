@@ -1,0 +1,65 @@
+<div class="page-header">
+  <h1>Produtos</h1>
+  <a mat-raised-button color="primary" routerLink="/products/new">
+    <mat-icon>add</mat-icon>
+    Novo Produto
+  </a>
+</div>
+
+<div *ngIf="loading$ | async" class="spinner-container">
+  <mat-spinner diameter="40" />
+</div>
+
+<table
+  mat-table
+  [dataSource]="products"
+  class="mat-elevation-z2 full-width"
+  *ngIf="!(loading$ | async)"
+>
+  <ng-container matColumnDef="code">
+    <th mat-header-cell *matHeaderCellDef>Código</th>
+    <td mat-cell *matCellDef="let p">{{ p.code }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="description">
+    <th mat-header-cell *matHeaderCellDef>Descrição</th>
+    <td mat-cell *matCellDef="let p">{{ p.description }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="balance">
+    <th mat-header-cell *matHeaderCellDef>Saldo</th>
+    <td mat-cell *matCellDef="let p">
+      <mat-chip [color]="p.balance > 0 ? 'primary' : 'warn'" highlighted>
+        {{ p.balance }}
+      </mat-chip>
+    </td>
+  </ng-container>
+
+  <ng-container matColumnDef="actions">
+    <th mat-header-cell *matHeaderCellDef>Ações</th>
+    <td mat-cell *matCellDef="let p">
+      <a
+        mat-icon-button
+        [routerLink]="['/products/edit', p.id]"
+        matTooltip="Editar"
+      >
+        <mat-icon>edit</mat-icon>
+      </a>
+      <button
+        mat-icon-button
+        color="warn"
+        (click)="delete(p.id)"
+        matTooltip="Excluir"
+      >
+        <mat-icon>delete</mat-icon>
+      </button>
+    </td>
+  </ng-container>
+
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+
+  <tr class="mat-row" *matNoDataRow>
+    <td class="mat-cell empty-row" colspan="4">Nenhum produto cadastrado.</td>
+  </tr>
+</table>

@@ -1,0 +1,45 @@
+# ========================
+# Environment
+# ========================
+.env
+.env.*
+!.env.example
+
+# ========================
+# Go
+# ========================
+services/inventory/inventory
+services/billing/billing
+**/*.test
+**/tmp/
+
+# ========================
+# Node / Angular
+# ========================
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/.cache/
+frontend/out-tsc/
+
+# ========================
+# Docker
+# ========================
+postgres_data/
+
+# ========================
+# OS
+# ========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========================
+# IDEs
+# ========================
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
