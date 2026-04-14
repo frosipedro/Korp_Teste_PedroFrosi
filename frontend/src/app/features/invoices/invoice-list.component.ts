@@ -66,6 +66,9 @@ export class InvoiceListComponent implements OnInit {
           this.snackBar.open(res.message, 'Fechar', { duration: 4000 })
           this.load()
         },
+        error: () => {
+          this.printingId$.next(null)
+        },
       })
   }
 

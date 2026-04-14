@@ -9,10 +9,15 @@ import {
 import { Observable, throwError } from 'rxjs'
 import { catchError } from 'rxjs/operators'
 import { MatSnackBar } from '@angular/material/snack-bar'
+import { HttpErrorService } from '../services/http-error.service'
+import { SUPPRESS_GLOBAL_ERROR_SNACKBAR } from '../http/request-flags'
 
 @Injectable()
 export class ErrorInterceptor implements HttpInterceptor {
-  constructor(private snackBar: MatSnackBar) {}
+  constructor(
+    private snackBar: MatSnackBar,
+    private httpErrorService: HttpErrorService,
+  ) {}
 
   intercept(
     req: HttpRequest<unknown>,
@@ -20,31 +25,15 @@ export class ErrorInterceptor implements HttpInterceptor {
   ): Observable<HttpEvent<unknown>> {
     return next.handle(req).pipe(
       catchError((err: HttpErrorResponse) => {
-        const message = this.resolveMessage(err)
-        this.snackBar.open(message, 'Fechar', {
-          duration: 5000,
-          panelClass: ['snack-error'],
-        })
+        if (!req.context.get(SUPPRESS_GLOBAL_ERROR_SNACKBAR)) {
+          const message = this.httpErrorService.getMessage(err)
+          this.snackBar.open(message, 'Fechar', {
+            duration: 5000,
+            panelClass: ['snack-error'],
+          })
+        }
         return throwError(() => err)
       }),
     )
-  }
-
-  private resolveMessage(err: HttpErrorResponse): string {
-    if (err.error?.error) {
-      return err.error.error
-    }
-    switch (err.status) {
-      case 400:
-        return 'Requisição inválida.'
-      case 404:
-        return 'Recurso não encontrado.'
-      case 409:
-        return 'Conflito: verifique os dados e tente novamente.'
-      case 502:
-        return 'Serviço indisponível. Tente novamente em instantes.'
-      default:
-        return `Erro inesperado (${err.status}). Tente novamente.`
-    }
   }
 }

@@ -106,7 +106,7 @@ func (h *ProductHandler) Update(c *gin.Context) {
 	err = h.db.QueryRow(`
 		UPDATE products
 		SET description = COALESCE(NULLIF($1, ''), description),
-		    balance     = CASE WHEN $2 >= 0 THEN $2 ELSE balance END,
+		    balance 	= COALESCE($2, balance),
 		    version     = version + 1
 		WHERE id = $3
 		RETURNING id, code, description, balance, version, created_at, updated_at
@@ -199,4 +199,65 @@ func (h *ProductHandler) DeductStock(c *gin.Context) {
 		Deducted:   req.Quantity,
 		NewBalance: newBalance,
 	})
+}
+
+// BatchDeductStock processes multiple deductions in a single transaction.
+func (h *ProductHandler) BatchDeductStock(c *gin.Context) {
+	var req struct {
+		Items []models.DeductStockRequest `json:"items" binding:"required,dive"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to begin transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	for _, item := range req.Items {
+		var currentBalance, currentVersion int
+		err := tx.QueryRow(`
+			SELECT balance, version FROM products WHERE id = $1
+		`, item.ProductID).Scan(&currentBalance, &currentVersion)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "product not found"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to read product"})
+			return
+		}
+
+		if currentBalance < item.Quantity {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "insufficient stock"})
+			return
+		}
+
+		res, err := tx.Exec(`
+			UPDATE products
+			SET balance = balance - $1, version = version + 1
+			WHERE id = $2 AND version = $3
+		`, item.Quantity, item.ProductID, currentVersion)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to deduct stock"})
+			return
+		}
+
+		rows, _ := res.RowsAffected()
+		if rows == 0 {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "concurrent update detected, please retry"})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to commit transaction"})
+		return
+	}
+
+	c.JSON(http.StatusOK, map[string]string{"message": "batch deductive successful"})
 }

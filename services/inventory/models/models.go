@@ -20,7 +20,7 @@ type CreateProductRequest struct {
 
 type UpdateProductRequest struct {
 	Description string `json:"description" binding:"omitempty,max=255"`
-	Balance     int    `json:"balance"     binding:"omitempty,min=0"`
+	Balance     *int    `json:"balance"     binding:"omitempty,min=0"`
 }
 
 type DeductStockRequest struct {

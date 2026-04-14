@@ -5,6 +5,7 @@ import {
   FormBuilder,
   FormGroup,
   FormArray,
+  AbstractControl,
   Validators,
 } from '@angular/forms'
 import { Router, RouterLink } from '@angular/router'
@@ -12,10 +13,10 @@ import { MatFormFieldModule } from '@angular/material/form-field'
 import { MatInputModule } from '@angular/material/input'
 import { MatButtonModule } from '@angular/material/button'
 import { MatIconModule } from '@angular/material/icon'
+import { MatTooltipModule } from '@angular/material/tooltip'
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner'
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar'
+import { MatSnackBar } from '@angular/material/snack-bar'
 import { MatDividerModule } from '@angular/material/divider'
-import { MatListModule } from '@angular/material/list'
 import { MatChipsModule } from '@angular/material/chips'
 import { MatCardModule } from '@angular/material/card'
 import {
@@ -27,6 +28,10 @@ import {
 import { InvoiceService } from '../../core/services/invoice.service'
 import { ProductService } from '../../core/services/product.service'
 import { Product } from '../../shared/models/product.model'
+import {
+  HttpErrorService,
+  StockConflictDetails,
+} from '../../core/services/http-error.service'
 
 @Component({
   selector: 'app-invoice-form',
@@ -39,10 +44,9 @@ import { Product } from '../../shared/models/product.model'
     MatInputModule,
     MatButtonModule,
     MatIconModule,
+    MatTooltipModule,
     MatProgressSpinnerModule,
-    MatSnackBarModule,
     MatDividerModule,
-    MatListModule,
     MatChipsModule,
     MatCardModule,
   ],
@@ -53,6 +57,9 @@ export class InvoiceFormComponent implements OnInit {
   loading$ = new BehaviorSubject<boolean>(false)
   suggesting$ = new BehaviorSubject<boolean>(false)
   suggestions: string[] = []
+  suggestionNotice: string | null = null
+  submissionError: string | null = null
+  stockConflict: StockConflictDetails | null = null
   products: Product[] = []
 
   constructor(
@@ -61,6 +68,7 @@ export class InvoiceFormComponent implements OnInit {
     private productService: ProductService,
     private router: Router,
     private snackBar: MatSnackBar,
+    private httpErrorService: HttpErrorService,
   ) {}
 
   ngOnInit(): void {
@@ -69,13 +77,26 @@ export class InvoiceFormComponent implements OnInit {
       items: this.fb.array([]),
     })
 
+    this.form.valueChanges.subscribe(() => {
+      if (this.submissionError || this.stockConflict) {
+        this.clearSubmissionError()
+      }
+    })
+
     this.productService.list().subscribe((p) => (this.products = p))
 
     this.form
       .get('description')!
       .valueChanges.pipe(debounceTime(600), distinctUntilChanged())
       .subscribe((val) => {
-        if (val?.trim().length > 3) this.fetchSuggestions(val)
+        const description = (val ?? '').trim()
+        if (description.length > 3) {
+          this.fetchSuggestions(description)
+          return
+        }
+
+        this.suggestions = []
+        this.suggestionNotice = null
       })
   }
 
@@ -87,8 +108,8 @@ export class InvoiceFormComponent implements OnInit {
     this.items.push(
       this.fb.group({
         product_id: [null, Validators.required],
-        product_code: ['', Validators.required],
-        description: ['', Validators.required],
+        product_code: [''],
+        description: ['', [Validators.required, Validators.maxLength(255)]],
         quantity: [1, [Validators.required, Validators.min(1)]],
       }),
     )
@@ -115,28 +136,41 @@ export class InvoiceFormComponent implements OnInit {
   }
 
   private fetchSuggestions(description: string): void {
+    this.suggestionNotice = null
     this.suggesting$.next(true)
     this.invoiceService
       .suggest(description)
       .pipe(finalize(() => this.suggesting$.next(false)))
       .subscribe({
-        next: (res) => (this.suggestions = res.suggestions),
-        error: () => (this.suggestions = []),
+        next: (res) => {
+          this.suggestions = res.suggestions
+        },
+        error: () => {
+          this.suggestions = []
+          this.suggestionNotice =
+            'Sugestões automáticas indisponíveis no momento. Você ainda pode criar a nota normalmente.'
+          this.suggesting$.next(false)
+        },
       })
   }
 
   submit(): void {
+    this.clearSubmissionError()
+
     if (this.items.length === 0) {
-      this.snackBar.open('Adicione ao menos um produto.', 'Fechar', {
-        duration: 3000,
-      })
+      this.submissionError = 'Adicione ao menos um produto antes de salvar.'
       return
     }
-    if (this.form.invalid) return
+
+    if (this.form.invalid) {
+      this.form.markAllAsTouched()
+      this.submissionError = 'Corrija os campos destacados antes de salvar.'
+      return
+    }
 
     this.loading$.next(true)
     this.invoiceService
-      .create({ items: this.items.value })
+      .create({ items: this.items.getRawValue() })
       .pipe(finalize(() => this.loading$.next(false)))
       .subscribe({
         next: () => {
@@ -145,6 +179,46 @@ export class InvoiceFormComponent implements OnInit {
           })
           this.router.navigate(['/invoices'])
         },
+        error: (error) => {
+          this.loading$.next(false)
+          const stockConflict =
+            this.httpErrorService.extractStockConflictDetails(error)
+
+          if (stockConflict) {
+            this.stockConflict = stockConflict
+            this.submissionError = this.buildStockConflictMessage(stockConflict)
+            return
+          }
+
+          this.submissionError = this.httpErrorService.getMessage(error)
+        },
       })
+  }
+
+  get totalQuantity(): number {
+    return this.items.controls.reduce((total, item) => {
+      return total + Number(item.get('quantity')?.value || 0)
+    }, 0)
+  }
+
+  private clearSubmissionError(): void {
+    this.submissionError = null
+    this.stockConflict = null
+  }
+
+  isStockConflictRow(item: AbstractControl): boolean {
+    return (
+      this.stockConflict !== null &&
+      item.get('product_id')?.value === this.stockConflict.productId
+    )
+  }
+
+  private buildStockConflictMessage(details: StockConflictDetails): string {
+    const product = this.products.find((p) => p.id === details.productId)
+    const label = product
+      ? `${product.code} — ${product.description}`
+      : `produto ID ${details.productId}`
+
+    return `O ${label} não possui saldo suficiente. Solicitado ${details.requested}, disponível ${details.available}.`
   }
 }

@@ -25,10 +25,10 @@ Sistema completo de gerenciamento de notas fiscais com arquitetura de microsserv
 
 **Stack:**
 
-- **Frontend:** Angular 17 + Angular Material + RxJS
+- **Frontend:** Angular 21 + Angular Material + RxJS
 - **Backend:** Go 1.26 com Gin Framework (2 microsserviços)
 - **Banco de dados:** PostgreSQL 16
-- **IA:** Anthropic Claude API (sugestão automática de produtos)
+- **IA:** Groq API (sugestão automática de produtos)
 - **Infraestrutura:** Docker + Docker Compose + Nginx
 
 ---
@@ -59,7 +59,7 @@ Korp_Teste_PedroFrosi/
 │       ├── db/postgres.go
 │       ├── handlers/invoice_handler.go
 │       ├── models/models.go
-│       ├── services/ai_suggestion.go
+│       ├── services/ai_suggestions.go
 │       └── migrations/001_create_invoices.sql
 │
 └── frontend/                     # Angular
@@ -129,10 +129,10 @@ New-Item .env
 Abra o arquivo e adicione:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxx
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxx
 ```
 
-> Obtenha sua chave em https://console.anthropic.com. Sem ela, a funcionalidade de sugestão IA não funciona, mas o restante do sistema funciona normalmente.
+> Obtenha sua chave em https://console.groq.com/keys. Sem ela, a funcionalidade de sugestão IA não funciona, mas o restante do sistema funciona normalmente.
 
 ### 3. Suba o projeto
 
@@ -199,7 +199,7 @@ go mod tidy
 DB_HOST=localhost DB_PORT=5432 DB_USER=invoice_user \
 DB_PASSWORD=invoice_pass DB_NAME=invoice_db PORT=8082 \
 INVENTORY_URL=http://localhost:8081 \
-ANTHROPIC_API_KEY=sk-ant-xxx \
+GROQ_API_KEY=gsk_xxx \
 go run main.go
 ```
 
@@ -357,7 +357,7 @@ Todas as chamadas HTTP passam pelo `ErrorInterceptor`, que captura erros e exibe
 
 ### Sugestão por IA
 
-Ao digitar a descrição de uma nova nota fiscal, o frontend dispara automaticamente (após 600ms de pausa) uma chamada ao endpoint `/ai/suggest`, que consulta a API da Anthropic e retorna até 5 sugestões de produtos relacionados. As sugestões aparecem como chips clicáveis que adicionam o produto à nota.
+Ao digitar a descrição de uma nova nota fiscal, o frontend dispara automaticamente (após 600ms de pausa) uma chamada ao endpoint `/ai/suggest`, que consulta a API da Groq e retorna até 5 sugestões de produtos relacionados. As sugestões aparecem como chips clicáveis que adicionam o produto à nota.
 
 ---
 
@@ -400,16 +400,16 @@ As migrations rodam automaticamente ao subir o Docker pela primeira vez. As tabe
 
 ## ⚠️ Problemas Comuns
 
-| Erro                            | Causa                                   | Solução                                       |
-| ------------------------------- | --------------------------------------- | --------------------------------------------- |
-| `cannot find module` (Go)       | `go.sum` ausente                        | `cd services/inventory && go mod tidy`        |
-| Angular não compila             | `npm install` não rodou                 | `cd frontend && npm install`                  |
-| Porta 5432 ocupada              | Postgres local rodando                  | `sudo lsof -i :5432` e pare o processo        |
-| Porta 4200/8081/8082 ocupada    | Outro processo usando                   | Troque a porta no `docker-compose.yml`        |
-| IA retorna erro 500             | `ANTHROPIC_API_KEY` inválida ou ausente | Verifique o `.env` na raiz                    |
-| Frontend não acessa o backend   | URL errada nos services                 | Verifique se está rodando via Docker ou local |
-| Banco vazio após reiniciar      | Volume foi removido com `-v`            | Normal — migrations recriam as tabelas        |
-| `connection refused` no billing | Inventory ainda não subiu               | Aguarde, o `depends_on` garante a ordem       |
+| Erro                            | Causa                              | Solução                                       |
+| ------------------------------- | ---------------------------------- | --------------------------------------------- |
+| `cannot find module` (Go)       | `go.sum` ausente                   | `cd services/inventory && go mod tidy`        |
+| Angular não compila             | `npm install` não rodou            | `cd frontend && npm install`                  |
+| Porta 5432 ocupada              | Postgres local rodando             | `sudo lsof -i :5432` e pare o processo        |
+| Porta 4200/8081/8082 ocupada    | Outro processo usando              | Troque a porta no `docker-compose.yml`        |
+| IA retorna erro 500             | `GROQ_API_KEY` inválida ou ausente | Verifique o `.env` na raiz                    |
+| Frontend não acessa o backend   | URL errada nos services            | Verifique se está rodando via Docker ou local |
+| Banco vazio após reiniciar      | Volume foi removido com `-v`       | Normal — migrations recriam as tabelas        |
+| `connection refused` no billing | Inventory ainda não subiu          | Aguarde, o `depends_on` garante a ordem       |
 
 ---
 

@@ -1,9 +1,30 @@
 <div class="page-header">
-  <h1>Nova Nota Fiscal</h1>
+  <div>
+    <h1>Nova Nota Fiscal</h1>
+    <p>Monte os itens, confira o saldo e salve a nota em um fluxo só.</p>
+  </div>
 </div>
 
-<mat-card class="form-card">
+<mat-card class="form-card invoice-form-card">
   <mat-card-content>
+    <div
+      *ngIf="submissionError"
+      class="feedback-banner feedback-banner--error"
+      role="alert"
+      aria-live="assertive"
+    >
+      <mat-icon>error_outline</mat-icon>
+      <div class="feedback-banner__content">
+        <span class="feedback-banner__title"
+          >Não foi possível salvar a nota</span
+        >
+        <p class="feedback-banner__message">{{ submissionError }}</p>
+        <small *ngIf="stockConflict"
+          >Revise o item destacado abaixo e tente novamente.</small
+        >
+      </div>
+    </div>
+
     <form [formGroup]="form" (ngSubmit)="submit()">
       <!-- AI Description -->
       <mat-form-field appearance="outline" class="full-width">
@@ -14,7 +35,8 @@
           placeholder="Ex: materiais de escritório"
         />
         <mat-hint
-          >Digite para receber sugestões automáticas de produtos.</mat-hint
+          >Digite para receber sugestões automáticas de produtos. Use mais de 3
+          caracteres.</mat-hint
         >
       </mat-form-field>
 
@@ -41,11 +63,33 @@
         </mat-chip-set>
       </div>
 
+      <div *ngIf="suggestionNotice" class="assistant-note" aria-live="polite">
+        <mat-icon>info</mat-icon>
+        <span>{{ suggestionNotice }}</span>
+      </div>
+
       <mat-divider style="margin: 24px 0" />
+
+      <div class="invoice-summary" *ngIf="items.length > 0">
+        <div class="invoice-summary__item">
+          <span class="invoice-summary__label">Itens</span>
+          <strong class="invoice-summary__value">{{ items.length }}</strong>
+        </div>
+        <div class="invoice-summary__item">
+          <span class="invoice-summary__label">Quantidade total</span>
+          <strong class="invoice-summary__value">{{ totalQuantity }}</strong>
+        </div>
+      </div>
 
       <!-- Items -->
       <div class="items-header">
-        <h3>Produtos</h3>
+        <div>
+          <h3>Produtos</h3>
+          <p class="section-note">
+            Selecione o produto, ajuste a quantidade e revise o saldo antes de
+            salvar.
+          </p>
+        </div>
         <button mat-stroked-button type="button" (click)="addItem()">
           <mat-icon>add</mat-icon>
           Adicionar Produto
@@ -57,6 +101,7 @@
           *ngFor="let item of items.controls; let i = index"
           [formGroupName]="i"
           class="item-row mat-elevation-z1"
+          [class.item-row--error]="isStockConflictRow(item)"
         >
           <!-- Product selector -->
           <mat-form-field appearance="outline">
@@ -71,16 +116,32 @@
                 {{ p.code }} — {{ p.description }}
               </option>
             </select>
+            <mat-hint>Escolha um produto já cadastrado.</mat-hint>
+            <mat-error *ngIf="item.get('product_id')?.hasError('required')"
+              >Selecione um produto para este item.</mat-error
+            >
           </mat-form-field>
 
           <mat-form-field appearance="outline">
             <mat-label>Descrição</mat-label>
             <input matInput formControlName="description" />
+            <mat-error *ngIf="item.get('description')?.hasError('required')"
+              >Descrição é obrigatória.</mat-error
+            >
+            <mat-error *ngIf="item.get('description')?.hasError('maxlength')"
+              >Máximo de 255 caracteres.</mat-error
+            >
           </mat-form-field>
 
-          <mat-form-field appearance="outline" style="width: 100px">
+          <mat-form-field appearance="outline">
             <mat-label>Qtd</mat-label>
             <input matInput type="number" formControlName="quantity" min="1" />
+            <mat-error *ngIf="item.get('quantity')?.hasError('required')"
+              >Quantidade é obrigatória.</mat-error
+            >
+            <mat-error *ngIf="item.get('quantity')?.hasError('min')"
+              >A quantidade precisa ser maior que zero.</mat-error
+            >
           </mat-form-field>
 
           <button
@@ -96,7 +157,7 @@
       </div>
 
       <p *ngIf="items.length === 0" class="empty-items">
-        Nenhum produto adicionado.
+        Nenhum produto adicionado. Clique em "Adicionar Produto" para começar.
       </p>
 
       <mat-divider style="margin: 24px 0" />
@@ -110,7 +171,7 @@
           mat-raised-button
           color="primary"
           type="submit"
-          [disabled]="form.invalid || items.length === 0 || (loading$ | async)"
+          [disabled]="items.length === 0 || (loading$ | async)"
         >
           <mat-spinner
             *ngIf="loading$ | async"

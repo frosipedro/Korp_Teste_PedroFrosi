@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Korp_Teste_PedroFrosi/billing/models"
@@ -17,17 +18,56 @@ import (
 )
 
 type InvoiceHandler struct {
-	db          *sql.DB
-	suggestionSvc *services.SuggestionService
-	inventoryURL  string
+	db              *sql.DB
+	suggestionSvc   *services.SuggestionService
+	inventoryURL    string
+	inventoryClient *http.Client
+}
+
+type stockItem struct {
+	ProductID int
+	Quantity  int
 }
 
 func NewInvoiceHandler(db *sql.DB) *InvoiceHandler {
 	return &InvoiceHandler{
-		db:            db,
-		suggestionSvc: services.NewSuggestionService(),
-		inventoryURL:  os.Getenv("INVENTORY_URL"),
+		db:              db,
+		suggestionSvc:   services.NewSuggestionService(),
+		inventoryURL:    os.Getenv("INVENTORY_URL"),
+		inventoryClient: &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+func (h *InvoiceHandler) getAvailableStock(productID int) (int, error) {
+	resp, err := h.inventoryClient.Get(fmt.Sprintf("%s/products/%d", h.inventoryURL, productID))
+	if err != nil {
+		return 0, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("inventory returned %d", resp.StatusCode)
+	}
+
+	var p struct {
+		Balance int `json:"balance"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		return 0, fmt.Errorf("decode error: %w", err)
+	}
+
+	var reservedQty int
+	err = h.db.QueryRow(`
+		SELECT COALESCE(SUM(quantity), 0)
+		FROM invoice_items 
+		JOIN invoices ON invoices.id = invoice_items.invoice_id 
+		WHERE invoices.status = 'open' AND invoice_items.product_id = $1
+	`, productID).Scan(&reservedQty)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, fmt.Errorf("fetch reserved error: %w", err)
+	}
+
+	return p.Balance - reservedQty, nil
 }
 
 // Create creates a new open invoice with items.
@@ -36,6 +76,25 @@ func (h *InvoiceHandler) Create(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
+	}
+
+	reqQuantities := make(map[int]int)
+	for _, item := range req.Items {
+		reqQuantities[item.ProductID] += item.Quantity
+	}
+
+	for pID, qty := range reqQuantities {
+		available, err := h.getAvailableStock(pID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to validate stock: " + err.Error()})
+			return
+		}
+		if qty > available {
+			c.JSON(http.StatusConflict, models.ErrorResponse{
+				Error: fmt.Sprintf("insufficient stock for product ID %d: requested %d, available %d", pID, qty, available),
+			})
+			return
+		}
 	}
 
 	tx, err := h.db.Begin()
@@ -163,17 +222,18 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
 	}
 
 	// Idempotency check
-	var existingID int
+	var existingID, existingNumber int
 	err = h.db.QueryRow(`
-		SELECT id FROM invoices WHERE idempotency_key = $1
-	`, req.IdempotencyKey).Scan(&existingID)
+    	SELECT id, number FROM invoices WHERE idempotency_key = $1
+	`, req.IdempotencyKey).Scan(&existingID, &existingNumber)
 	if err == nil {
-		c.JSON(http.StatusOK, models.PrintInvoiceResponse{
-			InvoiceID: existingID,
-			Status:    string(models.StatusClosed),
-			Message:   "already processed",
-		})
-		return
+    	c.JSON(http.StatusOK, models.PrintInvoiceResponse{
+        	InvoiceID:     existingID,
+        	InvoiceNumber: existingNumber,
+        	Status:        string(models.StatusClosed),
+        	Message:       "already processed",
+    	})
+    	return
 	}
 
 	// Load invoice
@@ -201,10 +261,6 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	type stockItem struct {
-		ProductID int
-		Quantity  int
-	}
 	var items []stockItem
 	for rows.Next() {
 		var si stockItem
@@ -212,26 +268,28 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
 		items = append(items, si)
 	}
 
-	// Deduct stock with retry (max 3 attempts)
+	// Deduct stock via batch with retry (max 3 attempts)
 	const maxRetries = 3
-	for _, item := range items {
-		success := false
-		var lastErr error
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			lastErr = h.deductStock(item.ProductID, item.Quantity)
-			if lastErr == nil {
-				success = true
-				break
-			}
-			log.Printf("print: deduct attempt %d failed for product %d: %v", attempt, item.ProductID, lastErr)
-			time.Sleep(time.Duration(attempt*200) * time.Millisecond)
+	success := false
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		var retryable bool
+		retryable, lastErr = h.deductStockBatch(items)
+		if lastErr == nil {
+			success = true
+			break
 		}
-		if !success {
-			c.JSON(http.StatusBadGateway, models.ErrorResponse{
-				Error: fmt.Sprintf("failed to deduct stock for product %d after %d attempts: %v", item.ProductID, maxRetries, lastErr),
-			})
-			return
+		if !retryable {
+			break
 		}
+		log.Printf("print: batch deduct attempt %d failed: %v", attempt, lastErr)
+		time.Sleep(time.Duration(attempt*200) * time.Millisecond)
+	}
+	if !success {
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{
+			Error: fmt.Sprintf("failed to deduct stock after %d attempts: %v", maxRetries, lastErr),
+		})
+		return
 	}
 
 	// Close invoice and save idempotency key
@@ -251,29 +309,41 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
 	})
 }
 
-func (h *InvoiceHandler) deductStock(productID, quantity int) error {
-	body, _ := json.Marshal(map[string]int{
-		"product_id": productID,
-		"quantity":   quantity,
+func (h *InvoiceHandler) deductStockBatch(items []stockItem) (bool, error) {
+	var reqItems []map[string]int
+	for _, item := range items {
+		reqItems = append(reqItems, map[string]int{
+			"product_id": item.ProductID,
+			"quantity":   item.Quantity,
+		})
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"items": reqItems,
 	})
 
-	resp, err := http.Post(
-		h.inventoryURL+"/stock/deduct",
+	resp, err := h.inventoryClient.Post(
+		h.inventoryURL+"/stock/deduct-batch",
 		"application/json",
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return fmt.Errorf("http error: %w", err)
+		return true, fmt.Errorf("http error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp models.ErrorResponse
 		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("inventory error: %s", errResp.Error)
+		if strings.TrimSpace(errResp.Error) == "" {
+			errResp.Error = http.StatusText(resp.StatusCode)
+		}
+
+		retryable := resp.StatusCode >= http.StatusInternalServerError
+		return retryable, fmt.Errorf("inventory error: %s", errResp.Error)
 	}
 
-	return nil
+	return false, nil
 }
 
 // Suggest calls the AI suggestion service.

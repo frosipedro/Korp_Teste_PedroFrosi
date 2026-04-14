@@ -31,6 +31,7 @@ func main() {
 	}
 
 	r.POST("/stock/deduct", h.DeductStock)
+	r.POST("/stock/deduct-batch", h.BatchDeductStock)
 
 	port := os.Getenv("PORT")
 	if port == "" {

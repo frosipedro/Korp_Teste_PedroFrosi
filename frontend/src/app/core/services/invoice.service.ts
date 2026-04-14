@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core'
-import { HttpClient } from '@angular/common/http'
+import { HttpClient, HttpContext } from '@angular/common/http'
 import { Observable } from 'rxjs'
 import {
   Invoice,
@@ -8,6 +8,7 @@ import {
   PrintInvoiceResponse,
   AISuggestionResponse,
 } from '../../shared/models/invoice.model'
+import { SUPPRESS_GLOBAL_ERROR_SNACKBAR } from '../http/request-flags'
 
 @Injectable({ providedIn: 'root' })
 export class InvoiceService {
@@ -25,7 +26,9 @@ export class InvoiceService {
   }
 
   create(payload: CreateInvoiceRequest): Observable<Invoice> {
-    return this.http.post<Invoice>(this.baseUrl, payload)
+    return this.http.post<Invoice>(this.baseUrl, payload, {
+      context: new HttpContext().set(SUPPRESS_GLOBAL_ERROR_SNACKBAR, true),
+    })
   }
 
   print(
@@ -39,6 +42,12 @@ export class InvoiceService {
   }
 
   suggest(description: string): Observable<AISuggestionResponse> {
-    return this.http.post<AISuggestionResponse>(this.aiUrl, { description })
+    return this.http.post<AISuggestionResponse>(
+      this.aiUrl,
+      { description },
+      {
+        context: new HttpContext().set(SUPPRESS_GLOBAL_ERROR_SNACKBAR, true),
+      },
+    )
   }
 }
