@@ -17,6 +17,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar'
 import { MatDividerModule } from '@angular/material/divider'
 import { MatListModule } from '@angular/material/list'
 import { MatChipsModule } from '@angular/material/chips'
+import { MatCardModule } from '@angular/material/card'
 import {
   BehaviorSubject,
   finalize,
@@ -43,6 +44,7 @@ import { Product } from '../../shared/models/product.model'
     MatDividerModule,
     MatListModule,
     MatChipsModule,
+    MatCardModule,
   ],
   templateUrl: './invoice-form.component.html',
 })
@@ -69,7 +71,6 @@ export class InvoiceFormComponent implements OnInit {
 
     this.productService.list().subscribe((p) => (this.products = p))
 
-    // AI suggestion trigger on description change
     this.form
       .get('description')!
       .valueChanges.pipe(debounceTime(600), distinctUntilChanged())
