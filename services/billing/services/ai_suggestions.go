@@ -9,23 +9,24 @@ import (
 	"os"
 )
 
-const anthropicAPI = "https://api.anthropic.com/v1/messages"
+const groqAPI = "https://api.groq.com/openai/v1/chat/completions"
 
-type anthropicRequest struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
-	Messages  []anthropicMessage `json:"messages"`
+type groqRequest struct {
+	Model    string        `json:"model"`
+	Messages []groqMessage `json:"messages"`
 }
 
-type anthropicMessage struct {
+type groqMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-type anthropicResponse struct {
-	Content []struct {
-		Text string `json:"text"`
-	} `json:"content"`
+type groqResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
 }
 
 type SuggestionService struct {
@@ -36,7 +37,7 @@ type SuggestionService struct {
 func NewSuggestionService() *SuggestionService {
 	return &SuggestionService{
 		client: &http.Client{},
-		apiKey: os.Getenv("ANTHROPIC_API_KEY"),
+		apiKey: os.Getenv("GROQ_API_KEY"),
 	}
 }
 
@@ -47,10 +48,9 @@ func (s *SuggestionService) Suggest(description string) ([]string, error) {
 Description: %s`, description,
 	)
 
-	body, err := json.Marshal(anthropicRequest{
-		Model:     "claude-sonnet-4-20250514",
-		MaxTokens: 256,
-		Messages: []anthropicMessage{
+	body, err := json.Marshal(groqRequest{
+		Model: "llama3-8b-8192",
+		Messages: []groqMessage{
 			{Role: "user", Content: prompt},
 		},
 	})
@@ -58,14 +58,13 @@ Description: %s`, description,
 		return nil, fmt.Errorf("ai_suggestion: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, anthropicAPI, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, groqAPI, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("ai_suggestion: build request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", s.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -78,17 +77,17 @@ Description: %s`, description,
 		return nil, fmt.Errorf("ai_suggestion: api error %d: %s", resp.StatusCode, string(raw))
 	}
 
-	var ar anthropicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
+	var gr groqResponse
+	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
 		return nil, fmt.Errorf("ai_suggestion: decode response: %w", err)
 	}
 
-	if len(ar.Content) == 0 {
+	if len(gr.Choices) == 0 {
 		return nil, fmt.Errorf("ai_suggestion: empty response from model")
 	}
 
 	var suggestions []string
-	if err := json.Unmarshal([]byte(ar.Content[0].Text), &suggestions); err != nil {
+	if err := json.Unmarshal([]byte(gr.Choices[0].Message.Content), &suggestions); err != nil {
 		return nil, fmt.Errorf("ai_suggestion: parse suggestions: %w", err)
 	}
 
