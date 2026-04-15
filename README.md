@@ -7,20 +7,29 @@ Sistema completo de gerenciamento de notas fiscais com arquitetura de microsserv
 ## 🏗️ Arquitetura
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Docker Compose                    │
-│                                                     │
-│  ┌──────────┐    ┌──────────┐    ┌───────────────┐  │
-│  │ Frontend │    │Inventory │    │    Billing    │  │
-│  │ Angular  │───▶│ Service  │◀───│    Service    │  │
-│  │  :4200   │    │  :8081   │    │     :8082     │  │
-│  └──────────┘    └────┬─────┘    └──────┬────────┘  │
-│                       │                 │           │
-│                  ┌────▼─────────────────▼────┐      │
-│                  │        PostgreSQL          │      │
-│                  │          :5432             │      │
-│                  └───────────────────────────┘      │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         Docker Compose                            │
+│                                                                  │
+│  Browser                                                         │
+│    │                                                            │
+│    ▼                                                            │
+│  ┌──────────────────────────┐   /api/inventory  ┌──────────────┐ │
+│  │ Frontend + Nginx         │──────────────────▶│ Inventory    │ │
+│  │ Angular :4200 / Nginx    │                   │ Service      │ │
+│  └────────────┬─────────────┘   /api/billing    │ :8081        │ │
+│               │────────────────────────────────▶└──────┬───────┘ │
+│               │                                         │         │
+│               │                                         │         │
+│               │                              ┌──────────▼──────┐ │
+│               │                              │ Billing Service  │ │
+│               │                              │ :8082            │ │
+│               │                              └──────────┬──────┘ │
+│               │                                         │         │
+│               │                                         ▼         │
+│               └──────────────────────────────▶ PostgreSQL :5432   │
+│                                             ▲                      │
+│                                             └──── Inventory + Billing
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 **Stack:**
@@ -132,7 +141,7 @@ Abra o arquivo e adicione:
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxx
 ```
 
-> Obtenha sua chave em https://console.groq.com/keys. Sem ela, a funcionalidade de sugestão IA não funciona, mas o restante do sistema funciona normalmente.
+> Obtenha sua chave em https://console.groq.com/keys. Sem ela, a funcionalidade de análise por IA não funciona, mas o restante do sistema funciona normalmente.
 
 ### 3. Suba o projeto
 
@@ -226,7 +235,7 @@ Acesse http://localhost:4200 e use a interface para:
 - Cadastrar, editar e excluir produtos
 - Criar notas fiscais com múltiplos produtos
 - Imprimir notas (muda status para Fechada e deduz estoque)
-- Ver sugestões automáticas de produtos via IA ao digitar a descrição da nota
+- Analisar a nota com IA sob demanda, sem alterar automaticamente produtos ou descrições
 
 ### Pelo Postman (ou qualquer cliente HTTP)
 
@@ -391,6 +400,7 @@ As migrations rodam automaticamente ao subir o Docker pela primeira vez. As tabe
 | number | INTEGER | Número sequencial (inicia em 1000) |
 | status | ENUM | `open` ou `closed` |
 | idempotency_key | VARCHAR(100) | Chave única de impressão |
+| closed_at | TIMESTAMPTZ | Data e hora em que a nota foi fechada |
 | created_at | TIMESTAMPTZ | Data de criação |
 | updated_at | TIMESTAMPTZ | Data de atualização |
 
