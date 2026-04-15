@@ -1,6 +1,7 @@
-import { Component, OnInit } from '@angular/core'
+import { Component, OnDestroy, OnInit } from '@angular/core'
 import { CommonModule } from '@angular/common'
 import { RouterLink } from '@angular/router'
+import { HttpErrorResponse } from '@angular/common/http'
 import { MatTableModule } from '@angular/material/table'
 import { MatButtonModule } from '@angular/material/button'
 import { MatButtonToggleModule } from '@angular/material/button-toggle'
@@ -13,6 +14,7 @@ import { MatTooltipModule } from '@angular/material/tooltip'
 import { MatSelectModule } from '@angular/material/select'
 import { BehaviorSubject, finalize } from 'rxjs'
 import { InvoiceService } from '../../core/services/invoice.service'
+import { HttpErrorService } from '../../core/services/http-error.service'
 import { Invoice, InvoiceStatus } from '../../shared/models/invoice.model'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -43,13 +45,17 @@ type InvoiceSortField =
   ],
   templateUrl: './invoice-list.component.html',
 })
-export class InvoiceListComponent implements OnInit {
+export class InvoiceListComponent implements OnInit, OnDestroy {
   invoices: Invoice[] = []
   loading$ = new BehaviorSubject<boolean>(false)
   printingId$ = new BehaviorSubject<number | null>(null)
+  loadError: string | null = null
+  retryInSeconds: number | null = null
   displayedColumns = ['number', 'status', 'created_at', 'closed_at', 'actions']
   sortField: InvoiceSortField = 'number'
   sortDirection: SortDirection = 'desc'
+  private retryIntervalId: ReturnType<typeof setInterval> | null = null
+  private readonly autoRetryDelaySeconds = 8
 
   readonly sortOptions = [
     { value: 'number', label: 'Número' },
@@ -62,18 +68,43 @@ export class InvoiceListComponent implements OnInit {
   constructor(
     private invoiceService: InvoiceService,
     private snackBar: MatSnackBar,
+    private httpErrorService: HttpErrorService,
   ) {}
 
   ngOnInit(): void {
     this.load()
   }
 
+  ngOnDestroy(): void {
+    this.clearScheduledRetry()
+  }
+
   load(): void {
+    this.clearScheduledRetry()
+    this.loadError = null
+
     this.loading$.next(true)
     this.invoiceService
-      .list()
+      .list(true)
       .pipe(finalize(() => this.loading$.next(false)))
-      .subscribe((data) => (this.invoices = data))
+      .subscribe({
+        next: (data) => {
+          this.invoices = data
+          this.loadError = null
+        },
+        error: (error: unknown) => {
+          this.invoices = []
+          this.loadError = this.httpErrorService.getMessage(error)
+
+          if (this.shouldScheduleRetry(error)) {
+            this.scheduleRetry()
+          }
+        },
+      })
+  }
+
+  retryNow(): void {
+    this.load()
   }
 
   get sortedInvoices(): Invoice[] {
@@ -171,5 +202,38 @@ export class InvoiceListComponent implements OnInit {
       default:
         return 2
     }
+  }
+
+  private shouldScheduleRetry(error: unknown): boolean {
+    return (
+      error instanceof HttpErrorResponse &&
+      [0, 502, 503, 504].includes(error.status)
+    )
+  }
+
+  private scheduleRetry(): void {
+    this.clearScheduledRetry()
+
+    let remaining = this.autoRetryDelaySeconds
+    this.retryInSeconds = remaining
+
+    this.retryIntervalId = setInterval(() => {
+      remaining -= 1
+      this.retryInSeconds = remaining
+
+      if (remaining <= 0) {
+        this.clearScheduledRetry()
+        this.load()
+      }
+    }, 1000)
+  }
+
+  private clearScheduledRetry(): void {
+    if (this.retryIntervalId !== null) {
+      clearInterval(this.retryIntervalId)
+      this.retryIntervalId = null
+    }
+
+    this.retryInSeconds = null
   }
 }

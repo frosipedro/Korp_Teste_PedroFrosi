@@ -18,9 +18,9 @@ import (
 )
 
 type InvoiceHandler struct {
-	db             *sql.DB
-	analysisSvc    *services.AnalysisService
-	inventoryURL   string
+	db              *sql.DB
+	analysisSvc     *services.AnalysisService
+	inventoryURL    string
 	inventoryClient *http.Client
 }
 
@@ -31,14 +31,35 @@ type stockItem struct {
 
 func NewInvoiceHandler(db *sql.DB) *InvoiceHandler {
 	return &InvoiceHandler{
-		db:             db,
-		analysisSvc:    services.NewAnalysisService(),
-		inventoryURL:   os.Getenv("INVENTORY_URL"),
+		db:              db,
+		analysisSvc:     services.NewAnalysisService(),
+		inventoryURL:    os.Getenv("INVENTORY_URL"),
 		inventoryClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
 func (h *InvoiceHandler) getAvailableStock(productID int) (int, error) {
+	const maxRetries = 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		available, err := h.getAvailableStockOnce(productID)
+		if err == nil {
+			return available, nil
+		}
+
+		lastErr = err
+		if !isRetryableInventoryError(err) || attempt == maxRetries {
+			break
+		}
+
+		time.Sleep(time.Duration(attempt*200) * time.Millisecond)
+	}
+
+	return 0, lastErr
+}
+
+func (h *InvoiceHandler) getAvailableStockOnce(productID int) (int, error) {
 	resp, err := h.inventoryClient.Get(fmt.Sprintf("%s/products/%d", h.inventoryURL, productID))
 	if err != nil {
 		return 0, fmt.Errorf("http get: %w", err)
@@ -86,7 +107,16 @@ func (h *InvoiceHandler) Create(c *gin.Context) {
 	for pID, qty := range reqQuantities {
 		available, err := h.getAvailableStock(pID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to validate stock: " + err.Error()})
+			log.Printf("create: failed to validate stock for product %d: %v", pID, err)
+
+			status := http.StatusBadGateway
+			apiError := "failed to validate stock"
+			if isInventoryUnavailableError(err) {
+				status = http.StatusServiceUnavailable
+				apiError = "inventory service unavailable"
+			}
+
+			c.JSON(status, models.ErrorResponse{Error: apiError})
 			return
 		}
 		if qty > available {
@@ -227,13 +257,13 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
     	SELECT id, number FROM invoices WHERE idempotency_key = $1
 	`, req.IdempotencyKey).Scan(&existingID, &existingNumber)
 	if err == nil {
-    	c.JSON(http.StatusOK, models.PrintInvoiceResponse{
-        	InvoiceID:     existingID,
-        	InvoiceNumber: existingNumber,
-        	Status:        string(models.StatusClosed),
-        	Message:       "already processed",
-    	})
-    	return
+		c.JSON(http.StatusOK, models.PrintInvoiceResponse{
+			InvoiceID:     existingID,
+			InvoiceNumber: existingNumber,
+			Status:        string(models.StatusClosed),
+			Message:       "already processed",
+		})
+		return
 	}
 
 	// Load invoice
@@ -286,9 +316,16 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
 		time.Sleep(time.Duration(attempt*200) * time.Millisecond)
 	}
 	if !success {
-		c.JSON(http.StatusBadGateway, models.ErrorResponse{
-			Error: fmt.Sprintf("failed to deduct stock after %d attempts: %v", maxRetries, lastErr),
-		})
+		log.Printf("print: failed to deduct stock after %d attempts: %v", maxRetries, lastErr)
+
+		status := http.StatusBadGateway
+		apiError := "failed to deduct stock"
+		if isInventoryUnavailableError(lastErr) {
+			status = http.StatusServiceUnavailable
+			apiError = "inventory service unavailable"
+		}
+
+		c.JSON(status, models.ErrorResponse{Error: apiError})
 		return
 	}
 
@@ -344,6 +381,46 @@ func (h *InvoiceHandler) deductStockBatch(items []stockItem) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func isRetryableInventoryError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+
+	if strings.Contains(message, "timeout") ||
+		strings.Contains(message, "deadline exceeded") ||
+		strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "no such host") ||
+		strings.Contains(message, "temporarily unavailable") {
+		return true
+	}
+
+	return strings.Contains(message, "inventory returned 500") ||
+		strings.Contains(message, "inventory returned 502") ||
+		strings.Contains(message, "inventory returned 503") ||
+		strings.Contains(message, "inventory returned 504") ||
+		strings.Contains(message, "http get:") ||
+		strings.Contains(message, "http error:")
+}
+
+func isInventoryUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "product not found") ||
+		strings.Contains(message, "insufficient stock") ||
+		strings.Contains(message, "concurrent update") ||
+		strings.Contains(message, "inventory returned 404") ||
+		strings.Contains(message, "inventory returned 409") {
+		return false
+	}
+
+	return strings.Contains(message, "inventory unavailable") || isRetryableInventoryError(err)
 }
 
 // Analyze reviews the current invoice draft with AI.

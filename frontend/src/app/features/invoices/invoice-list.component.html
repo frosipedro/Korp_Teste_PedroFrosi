@@ -32,11 +32,32 @@
   </div>
 </div>
 
+<div
+  *ngIf="loadError"
+  class="feedback-banner feedback-banner--error"
+  role="alert"
+  aria-live="assertive"
+>
+  <mat-icon>cloud_off</mat-icon>
+  <div class="feedback-banner__content">
+    <span class="feedback-banner__title">Serviço indisponível</span>
+    <p class="feedback-banner__message">{{ loadError }}</p>
+    <small *ngIf="retryInSeconds !== null"
+      >Nova tentativa automática em {{ retryInSeconds }}s.</small
+    >
+    <div class="feedback-banner__actions">
+      <button mat-stroked-button color="warn" (click)="retryNow()">
+        Tentar agora
+      </button>
+    </div>
+  </div>
+</div>
+
 <div *ngIf="loading$ | async" class="spinner-container">
   <mat-spinner diameter="40" />
 </div>
 
-<div class="table-shell" *ngIf="!(loading$ | async)">
+<div class="table-shell" *ngIf="!(loading$ | async) && !loadError">
   <table
     mat-table
     [dataSource]="sortedInvoices"

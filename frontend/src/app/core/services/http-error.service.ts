@@ -7,11 +7,26 @@ export interface StockConflictDetails {
   available: number
 }
 
+type UpstreamService = 'billing' | 'inventory' | null
+
 @Injectable({ providedIn: 'root' })
 export class HttpErrorService {
   getMessage(error: unknown): string {
     if (!(error instanceof HttpErrorResponse)) {
       return 'Erro inesperado. Tente novamente.'
+    }
+
+    const apiCode = this.getApiCode(error)
+    if (apiCode) {
+      const codeMessage = this.translateErrorCode(apiCode)
+      if (codeMessage) {
+        return codeMessage
+      }
+    }
+
+    const serviceUnavailableMessage = this.getServiceUnavailableMessage(error)
+    if (serviceUnavailableMessage) {
+      return serviceUnavailableMessage
     }
 
     const apiMessage = this.getApiMessage(error)
@@ -51,6 +66,8 @@ export class HttpErrorService {
       case 409:
         return 'Conflito de dados. Revise as informações e tente novamente.'
       case 502:
+      case 503:
+      case 504:
         return 'Serviço indisponível. Tente novamente em instantes.'
       default:
         return `Erro inesperado (${error.status}). Tente novamente.`
@@ -62,7 +79,7 @@ export class HttpErrorService {
       return null
     }
 
-    const apiMessage = this.getApiMessage(error)
+    const apiMessage = this.getApiTechnicalMessage(error)
     if (!apiMessage) {
       return null
     }
@@ -82,6 +99,18 @@ export class HttpErrorService {
   }
 
   private translateDomainMessage(message: string): string | null {
+    if (/billing service unavailable/i.test(message)) {
+      return this.buildServiceUnavailableMessage('billing')
+    }
+
+    if (/inventory service unavailable/i.test(message)) {
+      return this.buildServiceUnavailableMessage('inventory')
+    }
+
+    if (this.looksLikeUpstreamFailure(message)) {
+      return this.buildServiceUnavailableMessage(null)
+    }
+
     if (
       /context deadline exceeded|client\.timeout exceeded|timeout|deadline exceeded/i.test(
         message,
@@ -151,6 +180,14 @@ export class HttpErrorService {
       return 'Não foi possível baixar o estoque da nota. Tente novamente.'
     }
 
+    if (/failed to validate stock/i.test(message)) {
+      return 'Não foi possível validar o estoque agora. Tente novamente em instantes.'
+    }
+
+    if (/failed to deduct stock/i.test(message)) {
+      return 'Não foi possível baixar o estoque da nota. Tente novamente em instantes.'
+    }
+
     if (/inventory error:/i.test(message)) {
       return 'Não foi possível validar o estoque. Atualize os dados e tente novamente.'
     }
@@ -158,27 +195,149 @@ export class HttpErrorService {
     return null
   }
 
+  private translateErrorCode(code: string): string | null {
+    switch (code) {
+      case 'BILLING_UNAVAILABLE':
+        return this.buildServiceUnavailableMessage('billing')
+      case 'INVENTORY_UNAVAILABLE':
+        return this.buildServiceUnavailableMessage('inventory')
+      default:
+        return null
+    }
+  }
+
+  private getServiceUnavailableMessage(
+    error: HttpErrorResponse,
+  ): string | null {
+    const technicalMessage = this.getApiTechnicalMessage(error)
+    const unavailableStatus = [0, 502, 503, 504].includes(error.status)
+
+    if (!unavailableStatus && !technicalMessage) {
+      return null
+    }
+
+    if (technicalMessage && !this.looksLikeUpstreamFailure(technicalMessage)) {
+      return null
+    }
+
+    return this.buildServiceUnavailableMessage(
+      this.detectService(error, technicalMessage ?? ''),
+    )
+  }
+
+  private getApiCode(error: HttpErrorResponse): string | null {
+    const body = error.error
+    if (!body || typeof body !== 'object') {
+      return null
+    }
+
+    const code = this.readString((body as Record<string, unknown>)['code'])
+    return code ? code.toUpperCase() : null
+  }
+
   private getApiMessage(error: HttpErrorResponse): string | null {
     const body = error.error
 
     if (typeof body === 'string') {
-      return body.trim() || null
+      return this.normalizeApiText(body)
     }
 
     if (body && typeof body === 'object') {
       const nestedBody = body as Record<string, unknown>
-      const nestedMessage = this.readString(nestedBody['error'])
-      if (nestedMessage) {
-        return nestedMessage
-      }
-
-      const message = this.readString(nestedBody['message'])
+      const message = this.normalizeApiText(
+        this.readString(nestedBody['message']),
+      )
       if (message) {
         return message
+      }
+
+      const nestedMessage = this.normalizeApiText(
+        this.readString(nestedBody['error']),
+      )
+      if (nestedMessage) {
+        return nestedMessage
       }
     }
 
     return null
+  }
+
+  private getApiTechnicalMessage(error: HttpErrorResponse): string | null {
+    const body = error.error
+    if (body && typeof body === 'object') {
+      const nestedBody = body as Record<string, unknown>
+      const technicalError = this.normalizeApiText(
+        this.readString(nestedBody['error']),
+      )
+      if (technicalError) {
+        return technicalError
+      }
+    }
+
+    return this.getApiMessage(error)
+  }
+
+  private detectService(
+    error: HttpErrorResponse,
+    text: string,
+  ): UpstreamService {
+    const haystack = `${error.url ?? ''} ${text}`.toLowerCase()
+    if (
+      haystack.includes('/api/billing') ||
+      haystack.includes('billing:8082') ||
+      haystack.includes('billing service')
+    ) {
+      return 'billing'
+    }
+
+    if (
+      haystack.includes('/api/inventory') ||
+      haystack.includes('inventory:8081') ||
+      haystack.includes('inventory service')
+    ) {
+      return 'inventory'
+    }
+
+    return null
+  }
+
+  private looksLikeUpstreamFailure(message: string): boolean {
+    return (
+      /upstream|bad gateway|gateway timeout|service unavailable|temporarily unavailable/i.test(
+        message,
+      ) ||
+      /connection refused|dial tcp|connect\(\) failed|no live upstreams|econnrefused/i.test(
+        message,
+      )
+    )
+  }
+
+  private buildServiceUnavailableMessage(service: UpstreamService): string {
+    switch (service) {
+      case 'billing':
+        return 'O serviço de faturamento está temporariamente indisponível. Tente novamente em instantes.'
+      case 'inventory':
+        return 'O serviço de estoque está temporariamente indisponível. Tente novamente em instantes.'
+      default:
+        return 'Um serviço essencial está indisponível no momento. Tente novamente em instantes.'
+    }
+  }
+
+  private normalizeApiText(value: string | null): string | null {
+    if (!value) {
+      return null
+    }
+
+    const trimmed = value.trim()
+    if (!trimmed || this.looksLikeHtml(trimmed)) {
+      return null
+    }
+
+    return trimmed
+  }
+
+  private looksLikeHtml(value: string): boolean {
+    return /<!doctype html|<html|<head>|<body>|<title>|<\/\w+>/i.test(value)
   }
 
   private readString(value: unknown): string | null {

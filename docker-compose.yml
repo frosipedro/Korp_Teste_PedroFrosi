@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: invoice-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: invoice_user
       POSTGRES_PASSWORD: invoice_pass
@@ -25,6 +26,7 @@ services:
       context: ./services/inventory
       dockerfile: Dockerfile
     container_name: invoice-inventory
+    restart: unless-stopped
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -37,6 +39,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:8081/health >/dev/null 2>&1 || exit 1',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     networks:
       - invoice-net
 
@@ -45,6 +56,7 @@ services:
       context: ./services/billing
       dockerfile: Dockerfile
     container_name: invoice-billing
+    restart: unless-stopped
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -60,7 +72,16 @@ services:
       postgres:
         condition: service_healthy
       inventory:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- http://localhost:8082/health >/dev/null 2>&1 || exit 1',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     networks:
       - invoice-net
 
@@ -69,11 +90,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: invoice-frontend
+    restart: unless-stopped
     ports:
       - '4200:80'
     depends_on:
-      - inventory
-      - billing
+      inventory:
+        condition: service_healthy
+      billing:
+        condition: service_healthy
     networks:
       - invoice-net
 

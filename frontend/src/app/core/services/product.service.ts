@@ -14,7 +14,13 @@ export class ProductService {
 
   constructor(private http: HttpClient) {}
 
-  list(): Observable<Product[]> {
+  list(suppressGlobalErrorSnackbar = false): Observable<Product[]> {
+    if (suppressGlobalErrorSnackbar) {
+      return this.http.get<Product[]>(this.baseUrl, {
+        context: new HttpContext().set(SUPPRESS_GLOBAL_ERROR_SNACKBAR, true),
+      })
+    }
+
     return this.http.get<Product[]>(this.baseUrl)
   }
 

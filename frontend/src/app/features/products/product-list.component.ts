@@ -1,6 +1,7 @@
-import { Component, OnInit } from '@angular/core'
+import { Component, OnDestroy, OnInit } from '@angular/core'
 import { CommonModule } from '@angular/common'
 import { RouterLink } from '@angular/router'
+import { HttpErrorResponse } from '@angular/common/http'
 import { MatTableModule } from '@angular/material/table'
 import { MatButtonModule } from '@angular/material/button'
 import { MatButtonToggleModule } from '@angular/material/button-toggle'
@@ -12,6 +13,7 @@ import { MatSelectModule } from '@angular/material/select'
 import { MatChipsModule } from '@angular/material/chips'
 import { BehaviorSubject, finalize } from 'rxjs'
 import { ProductService } from '../../core/services/product.service'
+import { HttpErrorService } from '../../core/services/http-error.service'
 import { Product } from '../../shared/models/product.model'
 
 type SortDirection = 'asc' | 'desc'
@@ -40,12 +42,16 @@ type ProductSortField =
   ],
   templateUrl: './product-list.component.html',
 })
-export class ProductListComponent implements OnInit {
+export class ProductListComponent implements OnInit, OnDestroy {
   products: Product[] = []
   loading$ = new BehaviorSubject<boolean>(false)
+  loadError: string | null = null
+  retryInSeconds: number | null = null
   displayedColumns = ['code', 'description', 'balance', 'actions']
   sortField: ProductSortField = 'code'
   sortDirection: SortDirection = 'asc'
+  private retryIntervalId: ReturnType<typeof setInterval> | null = null
+  private readonly autoRetryDelaySeconds = 8
 
   readonly sortOptions = [
     { value: 'code', label: 'Código' },
@@ -58,18 +64,43 @@ export class ProductListComponent implements OnInit {
   constructor(
     private productService: ProductService,
     private snackBar: MatSnackBar,
+    private httpErrorService: HttpErrorService,
   ) {}
 
   ngOnInit(): void {
     this.load()
   }
 
+  ngOnDestroy(): void {
+    this.clearScheduledRetry()
+  }
+
   load(): void {
+    this.clearScheduledRetry()
+    this.loadError = null
+
     this.loading$.next(true)
     this.productService
-      .list()
+      .list(true)
       .pipe(finalize(() => this.loading$.next(false)))
-      .subscribe((data) => (this.products = data))
+      .subscribe({
+        next: (data) => {
+          this.products = data
+          this.loadError = null
+        },
+        error: (error: unknown) => {
+          this.products = []
+          this.loadError = this.httpErrorService.getMessage(error)
+
+          if (this.shouldScheduleRetry(error)) {
+            this.scheduleRetry()
+          }
+        },
+      })
+  }
+
+  retryNow(): void {
+    this.load()
   }
 
   get sortedProducts(): Product[] {
@@ -139,5 +170,38 @@ export class ProductListComponent implements OnInit {
   private parseTimestamp(value: string): number {
     const timestamp = Date.parse(value)
     return Number.isNaN(timestamp) ? 0 : timestamp
+  }
+
+  private shouldScheduleRetry(error: unknown): boolean {
+    return (
+      error instanceof HttpErrorResponse &&
+      [0, 502, 503, 504].includes(error.status)
+    )
+  }
+
+  private scheduleRetry(): void {
+    this.clearScheduledRetry()
+
+    let remaining = this.autoRetryDelaySeconds
+    this.retryInSeconds = remaining
+
+    this.retryIntervalId = setInterval(() => {
+      remaining -= 1
+      this.retryInSeconds = remaining
+
+      if (remaining <= 0) {
+        this.clearScheduledRetry()
+        this.load()
+      }
+    }, 1000)
+  }
+
+  private clearScheduledRetry(): void {
+    if (this.retryIntervalId !== null) {
+      clearInterval(this.retryIntervalId)
+      this.retryIntervalId = null
+    }
+
+    this.retryInSeconds = null
   }
 }

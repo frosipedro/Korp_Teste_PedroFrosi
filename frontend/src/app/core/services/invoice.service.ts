@@ -18,7 +18,13 @@ export class InvoiceService {
 
   constructor(private http: HttpClient) {}
 
-  list(): Observable<Invoice[]> {
+  list(suppressGlobalErrorSnackbar = false): Observable<Invoice[]> {
+    if (suppressGlobalErrorSnackbar) {
+      return this.http.get<Invoice[]>(this.baseUrl, {
+        context: new HttpContext().set(SUPPRESS_GLOBAL_ERROR_SNACKBAR, true),
+      })
+    }
+
     return this.http.get<Invoice[]>(this.baseUrl)
   }
 
