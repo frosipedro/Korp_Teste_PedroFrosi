@@ -14,19 +14,19 @@ Sistema completo de gerenciamento de notas fiscais com arquitetura de microsserv
 │    │                                                               │
 │    ▼                                                               │
 │  ┌──────────────────────────┐   /api/inventory  ┌──────────────┐   │
-│  │ Frontend + Nginx         │──────────────────▶│ Inventory   │   │
-│  │ Angular :4200 / Nginx    │                   │ Service      │   │
-│  └────────────┬─────────────┘   /api/billing    │ :8081        │   │
-│               │────────────────────────────────▶└──────┬───────┘  │
+│  │ Frontend + Nginx         │─────────────────▶│ Inventory    │   │
+│  │ Angular :4200 / Nginx    │                   │  Service     │   │
+│  └────────────┬─────────────┘   /api/billing    │  :8081       │   │
+│               │───────────────────────────────▶└──────┬───────┘   │
 │               │                                         │          │
 │               │                                         │          │
 │               │                              ┌──────────▼──────┐   │
-│               │                              │ Billing Service  │  │
-│               │                              │ :8082            │  │
+│               │                              │ Billing Service │   │
+│               │                              │ :8082           │   │
 │               │                              └──────────┬──────┘   │
 │               │                                         │          │
 │               │                                         ▼          │
-│               └─────────────────────────────▶ PostgreSQL :5432    │
+│               └────────────────────────────▶ PostgreSQL :5432     │
 │                                            ▲                       │
 │                                            └─ Inventory + Billing  │
 │                                                                    │
@@ -48,7 +48,7 @@ Sistema completo de gerenciamento de notas fiscais com arquitetura de microsserv
 ```
 Korp_Teste_PedroFrosi/
 ├── docker-compose.yml
-├── .env                          ← você cria (não está no repo)
+├── .env
 ├── .gitignore
 ├── README.md
 │
@@ -333,25 +333,6 @@ Content-Type: application/json
 ```
 
 > O `idempotency_key` deve ser um UUID único por impressão. Gere um em https://www.uuidgenerator.net. Reenviar a mesma chave retorna sucesso sem reprocessar.
-
-#### IA — Análise de Nota Fiscal
-
-```http
-POST http://localhost:8082/ai/analyze
-Content-Type: application/json
-
-{
-  "context": "materiais de escritório para a matriz",
-  "items": [
-    {
-      "product_id": 1,
-      "product_code": "PROD-001",
-      "description": "Notebook Dell Inspiron",
-      "quantity": 2
-    }
-  ]
-}
-```
 
 ---
 
