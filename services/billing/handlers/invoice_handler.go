@@ -18,9 +18,9 @@ import (
 )
 
 type InvoiceHandler struct {
-	db              *sql.DB
-	suggestionSvc   *services.SuggestionService
-	inventoryURL    string
+	db             *sql.DB
+	analysisSvc    *services.AnalysisService
+	inventoryURL   string
 	inventoryClient *http.Client
 }
 
@@ -31,9 +31,9 @@ type stockItem struct {
 
 func NewInvoiceHandler(db *sql.DB) *InvoiceHandler {
 	return &InvoiceHandler{
-		db:              db,
-		suggestionSvc:   services.NewSuggestionService(),
-		inventoryURL:    os.Getenv("INVENTORY_URL"),
+		db:             db,
+		analysisSvc:    services.NewAnalysisService(),
+		inventoryURL:   os.Getenv("INVENTORY_URL"),
 		inventoryClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -108,8 +108,8 @@ func (h *InvoiceHandler) Create(c *gin.Context) {
 	err = tx.QueryRow(`
 		INSERT INTO invoices (number)
 		VALUES (nextval('invoice_number_seq'))
-		RETURNING id, number, status, created_at, updated_at
-	`).Scan(&invoice.ID, &invoice.Number, &invoice.Status, &invoice.CreatedAt, &invoice.UpdatedAt)
+		RETURNING id, number, status, closed_at, created_at, updated_at
+	`).Scan(&invoice.ID, &invoice.Number, &invoice.Status, &invoice.ClosedAt, &invoice.CreatedAt, &invoice.UpdatedAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to create invoice"})
 		return
@@ -141,7 +141,7 @@ func (h *InvoiceHandler) Create(c *gin.Context) {
 // List returns all invoices without items.
 func (h *InvoiceHandler) List(c *gin.Context) {
 	rows, err := h.db.Query(`
-		SELECT id, number, status, created_at, updated_at
+		SELECT id, number, status, closed_at, created_at, updated_at
 		FROM invoices ORDER BY number DESC
 	`)
 	if err != nil {
@@ -153,7 +153,7 @@ func (h *InvoiceHandler) List(c *gin.Context) {
 	invoices := []models.Invoice{}
 	for rows.Next() {
 		var inv models.Invoice
-		if err := rows.Scan(&inv.ID, &inv.Number, &inv.Status, &inv.CreatedAt, &inv.UpdatedAt); err != nil {
+		if err := rows.Scan(&inv.ID, &inv.Number, &inv.Status, &inv.ClosedAt, &inv.CreatedAt, &inv.UpdatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to scan invoice"})
 			return
 		}
@@ -173,8 +173,8 @@ func (h *InvoiceHandler) GetByID(c *gin.Context) {
 
 	var inv models.Invoice
 	err = h.db.QueryRow(`
-		SELECT id, number, status, created_at, updated_at FROM invoices WHERE id = $1
-	`, id).Scan(&inv.ID, &inv.Number, &inv.Status, &inv.CreatedAt, &inv.UpdatedAt)
+		SELECT id, number, status, closed_at, created_at, updated_at FROM invoices WHERE id = $1
+	`, id).Scan(&inv.ID, &inv.Number, &inv.Status, &inv.ClosedAt, &inv.CreatedAt, &inv.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "invoice not found"})
@@ -294,7 +294,7 @@ func (h *InvoiceHandler) Print(c *gin.Context) {
 
 	// Close invoice and save idempotency key
 	_, err = h.db.Exec(`
-		UPDATE invoices SET status = 'closed', idempotency_key = $1 WHERE id = $2
+		UPDATE invoices SET status = 'closed', closed_at = NOW(), idempotency_key = $1 WHERE id = $2
 	`, req.IdempotencyKey, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to close invoice"})
@@ -346,20 +346,20 @@ func (h *InvoiceHandler) deductStockBatch(items []stockItem) (bool, error) {
 	return false, nil
 }
 
-// Suggest calls the AI suggestion service.
-func (h *InvoiceHandler) Suggest(c *gin.Context) {
-	var req models.AISuggestionRequest
+// Analyze reviews the current invoice draft with AI.
+func (h *InvoiceHandler) Analyze(c *gin.Context) {
+	var req models.AIAnalysisRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	suggestions, err := h.suggestionSvc.Suggest(req.Description)
+	analysis, err := h.analysisSvc.Analyze(req.Context, req.Items)
 	if err != nil {
-		log.Printf("suggest: %v", err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get suggestions"})
+		log.Printf("analyze: %v", err)
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "failed to analyze invoice: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, models.AISuggestionResponse{Suggestions: suggestions})
+	c.JSON(http.StatusOK, analysis)
 }

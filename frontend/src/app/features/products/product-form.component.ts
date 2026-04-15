@@ -16,6 +16,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar'
 import { MatCardModule } from '@angular/material/card'
 import { BehaviorSubject, finalize } from 'rxjs'
 import { ProductService } from '../../core/services/product.service'
+import { HttpErrorService } from '../../core/services/http-error.service'
 
 @Component({
   selector: 'app-product-form',
@@ -38,6 +39,7 @@ export class ProductFormComponent implements OnInit {
   form!: FormGroup
   loading$ = new BehaviorSubject<boolean>(false)
   editId: number | null = null
+  submissionError: string | null = null
 
   get isEdit(): boolean {
     return this.editId !== null
@@ -49,6 +51,7 @@ export class ProductFormComponent implements OnInit {
     private router: Router,
     private route: ActivatedRoute,
     private snackBar: MatSnackBar,
+    private httpErrorService: HttpErrorService,
   ) {}
 
   ngOnInit(): void {
@@ -56,6 +59,12 @@ export class ProductFormComponent implements OnInit {
       code: ['', [Validators.required, Validators.maxLength(50)]],
       description: ['', [Validators.required, Validators.maxLength(255)]],
       balance: [0, [Validators.required, Validators.min(0)]],
+    })
+
+    this.form.valueChanges.subscribe(() => {
+      if (this.submissionError) {
+        this.submissionError = null
+      }
     })
 
     const id = this.route.snapshot.paramMap.get('id')
@@ -79,6 +88,7 @@ export class ProductFormComponent implements OnInit {
   submit(): void {
     if (this.form.invalid) return
 
+    this.submissionError = null
     this.loading$.next(true)
     const value = this.form.getRawValue()
 
@@ -97,6 +107,9 @@ export class ProductFormComponent implements OnInit {
           { duration: 3000 },
         )
         this.router.navigate(['/products'])
+      },
+      error: (error) => {
+        this.submissionError = this.httpErrorService.getMessage(error)
       },
     })
   }

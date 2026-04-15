@@ -121,6 +121,32 @@ export class HttpErrorService {
       return 'Não foi possível fechar a nota fiscal.'
     }
 
+    if (
+      /product code already exists/i.test(message) ||
+      /duplicate key value violates unique constraint .*products_code_key/i.test(
+        message,
+      ) ||
+      /já existe um produto com esse código/i.test(message)
+    ) {
+      return 'Já existe um produto com esse código.'
+    }
+
+    if (/failed to analyze invoice/i.test(message)) {
+      return 'Não foi possível gerar a análise por IA. Tente novamente.'
+    }
+
+    if (/ai_analysis: GROQ_API_KEY not configured/i.test(message)) {
+      return 'A análise por IA não está configurada neste ambiente.'
+    }
+
+    if (/ai_analysis:.*(timeout|deadline exceeded)/i.test(message)) {
+      return 'A IA demorou para responder. Tente novamente.'
+    }
+
+    if (/ai_analysis:/i.test(message)) {
+      return 'Não foi possível gerar a análise por IA. Tente novamente.'
+    }
+
     if (/failed to deduct stock after \d+ attempts/i.test(message)) {
       return 'Não foi possível baixar o estoque da nota. Tente novamente.'
     }

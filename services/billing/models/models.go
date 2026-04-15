@@ -13,6 +13,7 @@ type Invoice struct {
 	ID             int           `json:"id"`
 	Number         int           `json:"number"`
 	Status         InvoiceStatus `json:"status"`
+	ClosedAt       *time.Time    `json:"closed_at,omitempty"`
 	IdempotencyKey string        `json:"idempotency_key,omitempty"`
 	Items          []InvoiceItem `json:"items,omitempty"`
 	CreatedAt      time.Time     `json:"created_at"`
@@ -51,12 +52,24 @@ type PrintInvoiceResponse struct {
 	Message       string `json:"message"`
 }
 
-type AISuggestionRequest struct {
-	Description string `json:"description" binding:"required"`
+type AIAnalysisItem struct {
+	ProductID   int    `json:"product_id" binding:"required"`
+	ProductCode string `json:"product_code" binding:"required,max=50"`
+	Description string `json:"description" binding:"required,max=255"`
+	Quantity    int    `json:"quantity" binding:"required,min=1"`
 }
 
-type AISuggestionResponse struct {
-	Suggestions []string `json:"suggestions"`
+type AIAnalysisRequest struct {
+	Context string           `json:"context,omitempty"`
+	Items   []AIAnalysisItem `json:"items" binding:"required,min=1,dive"`
+}
+
+type AIAnalysisResponse struct {
+	Summary         string   `json:"summary"`
+	Category        string   `json:"category"`
+	RiskLevel       string   `json:"risk_level"`
+	Alerts          []string `json:"alerts"`
+	Recommendations []string `json:"recommendations"`
 }
 
 type ErrorResponse struct {

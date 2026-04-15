@@ -29,7 +29,7 @@ func main() {
 		invoices.POST("/:id/print", h.Print)
 	}
 
-	r.POST("/ai/suggest", h.Suggest)
+	r.POST("/ai/analyze", h.Analyze)
 
 	port := os.Getenv("PORT")
 	if port == "" {

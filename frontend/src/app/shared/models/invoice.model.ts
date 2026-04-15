@@ -14,6 +14,7 @@ export interface Invoice {
   id: number
   number: number
   status: InvoiceStatus
+  closed_at?: string | null
   idempotency_key?: string
   items?: InvoiceItem[]
   created_at: string
@@ -42,6 +43,22 @@ export interface PrintInvoiceResponse {
   message: string
 }
 
-export interface AISuggestionResponse {
-  suggestions: string[]
+export interface AIAnalysisItem {
+  product_id: number
+  product_code: string
+  description: string
+  quantity: number
+}
+
+export interface AIAnalysisRequest {
+  context?: string
+  items: AIAnalysisItem[]
+}
+
+export interface AIAnalysisResponse {
+  summary: string
+  category: string
+  risk_level: string
+  alerts: string[]
+  recommendations: string[]
 }

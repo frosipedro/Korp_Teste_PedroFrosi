@@ -1,7 +1,10 @@
 <div class="page-header">
   <div>
     <h1>Nova Nota Fiscal</h1>
-    <p>Monte os itens, confira o saldo e salve a nota em um fluxo só.</p>
+    <p>
+      Monte os itens e, se quiser, peça uma análise de apoio por IA antes de
+      salvar.
+    </p>
   </div>
 </div>
 
@@ -26,47 +29,112 @@
     </div>
 
     <form [formGroup]="form" (ngSubmit)="submit()">
-      <!-- AI Description -->
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Descrição da nota (sugestão IA)</mat-label>
-        <input
-          matInput
-          formControlName="description"
-          placeholder="Ex: materiais de escritório"
-        />
-        <mat-hint
-          >Digite para receber sugestões automáticas de produtos. Use mais de 3
-          caracteres.</mat-hint
-        >
-      </mat-form-field>
+      <section class="analysis-panel">
+        <div class="analysis-panel__header">
+          <div>
+            <h3>Análise por IA</h3>
+            <p>
+              A IA só roda quando você clicar. Ela não altera produtos,
+              quantidades ou descrições.
+            </p>
+          </div>
 
-      <!-- AI Suggestions -->
-      <div *ngIf="suggesting$ | async" class="suggestion-spinner">
-        <mat-spinner diameter="20" />
-        <span>Buscando sugestões...</span>
-      </div>
+          <button
+            mat-stroked-button
+            type="button"
+            (click)="analyze()"
+            [disabled]="items.length === 0 || (analyzing$ | async)"
+          >
+            <mat-spinner
+              *ngIf="analyzing$ | async"
+              diameter="18"
+              style="display: inline-block; margin-right: 8px"
+            />
+            <mat-icon *ngIf="!(analyzing$ | async)">psychology</mat-icon>
+            Analisar com IA
+          </button>
+        </div>
+
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Contexto para a análise (opcional)</mat-label>
+          <textarea
+            matInput
+            rows="3"
+            formControlName="analysisContext"
+            placeholder="Ex: compra para escritório administrativo, itens de papelaria e reposição"
+          ></textarea>
+          <mat-hint
+            >Use este campo para dar mais contexto à análise, se
+            quiser.</mat-hint
+          >
+        </mat-form-field>
+
+        <div class="assistant-note" aria-live="polite">
+          <mat-icon>info</mat-icon>
+          <span>A IA só será executada quando você pedir.</span>
+        </div>
+      </section>
 
       <div
-        *ngIf="suggestions.length > 0 && !(suggesting$ | async)"
-        class="suggestions"
+        *ngIf="analysisMessage"
+        class="feedback-banner feedback-banner--error"
+        role="alert"
+        aria-live="assertive"
       >
-        <p class="suggestions-label">Sugestões IA — clique para adicionar:</p>
-        <mat-chip-set>
-          <mat-chip
-            *ngFor="let s of suggestions"
-            (click)="applySuggestion(s)"
-            style="cursor: pointer"
-          >
-            <mat-icon matChipAvatar>auto_awesome</mat-icon>
-            {{ s }}
-          </mat-chip>
-        </mat-chip-set>
+        <mat-icon>warning</mat-icon>
+        <div class="feedback-banner__content">
+          <span class="feedback-banner__title">Análise indisponível</span>
+          <p class="feedback-banner__message">{{ analysisMessage }}</p>
+        </div>
       </div>
 
-      <div *ngIf="suggestionNotice" class="assistant-note" aria-live="polite">
-        <mat-icon>info</mat-icon>
-        <span>{{ suggestionNotice }}</span>
-      </div>
+      <mat-card *ngIf="analysisResult" class="analysis-result mat-elevation-z0">
+        <div class="analysis-result__header">
+          <div>
+            <p class="analysis-result__eyebrow">Resultado da IA</p>
+            <h3>{{ analysisResult.category }}</h3>
+          </div>
+
+          <mat-chip-set>
+            <mat-chip [ngClass]="riskClass(analysisResult.risk_level)">
+              Risco {{ riskLabel(analysisResult.risk_level) }}
+            </mat-chip>
+          </mat-chip-set>
+        </div>
+
+        <p class="analysis-result__summary">{{ analysisResult.summary }}</p>
+
+        <div class="analysis-result__grid">
+          <section>
+            <h4>Alertas</h4>
+            <ul *ngIf="analysisResult.alerts.length > 0; else noAlerts">
+              <li *ngFor="let alert of analysisResult.alerts">{{ alert }}</li>
+            </ul>
+            <ng-template #noAlerts>
+              <p class="analysis-result__empty">Nenhum alerta relevante.</p>
+            </ng-template>
+          </section>
+
+          <section>
+            <h4>Recomendações</h4>
+            <ul
+              *ngIf="
+                analysisResult.recommendations.length > 0;
+                else noRecommendations
+              "
+            >
+              <li *ngFor="let recommendation of analysisResult.recommendations">
+                {{ recommendation }}
+              </li>
+            </ul>
+            <ng-template #noRecommendations>
+              <p class="analysis-result__empty">
+                Nenhuma recomendação adicional.
+              </p>
+            </ng-template>
+          </section>
+        </div>
+      </mat-card>
 
       <mat-divider style="margin: 24px 0" />
 
@@ -81,7 +149,6 @@
         </div>
       </div>
 
-      <!-- Items -->
       <div class="items-header">
         <div>
           <h3>Produtos</h3>
@@ -103,7 +170,6 @@
           class="item-row mat-elevation-z1"
           [class.item-row--error]="isStockConflictRow(item)"
         >
-          <!-- Product selector -->
           <mat-form-field appearance="outline">
             <mat-label>Produto</mat-label>
             <select

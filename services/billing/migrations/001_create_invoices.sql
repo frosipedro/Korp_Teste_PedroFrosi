@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     id              SERIAL PRIMARY KEY,
     number          INTEGER         NOT NULL UNIQUE,
     status          invoice_status  NOT NULL DEFAULT 'open',
+    closed_at       TIMESTAMPTZ,
     idempotency_key VARCHAR(100)    UNIQUE,
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()

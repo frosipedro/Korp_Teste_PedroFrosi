@@ -19,12 +19,7 @@ import { MatSnackBar } from '@angular/material/snack-bar'
 import { MatDividerModule } from '@angular/material/divider'
 import { MatChipsModule } from '@angular/material/chips'
 import { MatCardModule } from '@angular/material/card'
-import {
-  BehaviorSubject,
-  finalize,
-  debounceTime,
-  distinctUntilChanged,
-} from 'rxjs'
+import { BehaviorSubject, finalize } from 'rxjs'
 import { InvoiceService } from '../../core/services/invoice.service'
 import { ProductService } from '../../core/services/product.service'
 import { Product } from '../../shared/models/product.model'
@@ -32,6 +27,7 @@ import {
   HttpErrorService,
   StockConflictDetails,
 } from '../../core/services/http-error.service'
+import { AIAnalysisResponse } from '../../shared/models/invoice.model'
 
 @Component({
   selector: 'app-invoice-form',
@@ -55,9 +51,9 @@ import {
 export class InvoiceFormComponent implements OnInit {
   form!: FormGroup
   loading$ = new BehaviorSubject<boolean>(false)
-  suggesting$ = new BehaviorSubject<boolean>(false)
-  suggestions: string[] = []
-  suggestionNotice: string | null = null
+  analyzing$ = new BehaviorSubject<boolean>(false)
+  analysisResult: AIAnalysisResponse | null = null
+  analysisMessage: string | null = null
   submissionError: string | null = null
   stockConflict: StockConflictDetails | null = null
   products: Product[] = []
@@ -73,7 +69,7 @@ export class InvoiceFormComponent implements OnInit {
 
   ngOnInit(): void {
     this.form = this.fb.group({
-      description: [''],
+      analysisContext: [''],
       items: this.fb.array([]),
     })
 
@@ -81,23 +77,13 @@ export class InvoiceFormComponent implements OnInit {
       if (this.submissionError || this.stockConflict) {
         this.clearSubmissionError()
       }
+
+      if (this.analysisResult || this.analysisMessage) {
+        this.clearAnalysisState()
+      }
     })
 
     this.productService.list().subscribe((p) => (this.products = p))
-
-    this.form
-      .get('description')!
-      .valueChanges.pipe(debounceTime(600), distinctUntilChanged())
-      .subscribe((val) => {
-        const description = (val ?? '').trim()
-        if (description.length > 3) {
-          this.fetchSuggestions(description)
-          return
-        }
-
-        this.suggestions = []
-        this.suggestionNotice = null
-      })
   }
 
   get items(): FormArray {
@@ -129,27 +115,33 @@ export class InvoiceFormComponent implements OnInit {
     })
   }
 
-  applySuggestion(suggestion: string): void {
-    this.addItem()
-    const last = this.items.length - 1
-    this.items.at(last).patchValue({ description: suggestion })
-  }
+  analyze(): void {
+    this.clearAnalysisState()
 
-  private fetchSuggestions(description: string): void {
-    this.suggestionNotice = null
-    this.suggesting$.next(true)
+    if (this.items.length === 0) {
+      this.analysisMessage = 'Adicione ao menos um produto antes de analisar.'
+      return
+    }
+
+    if (this.form.invalid) {
+      this.form.markAllAsTouched()
+      this.analysisMessage = 'Corrija os campos destacados antes de analisar.'
+      return
+    }
+
+    this.analyzing$.next(true)
     this.invoiceService
-      .suggest(description)
-      .pipe(finalize(() => this.suggesting$.next(false)))
+      .analyze({
+        context: (this.form.get('analysisContext')?.value ?? '').trim(),
+        items: this.items.getRawValue(),
+      })
+      .pipe(finalize(() => this.analyzing$.next(false)))
       .subscribe({
         next: (res) => {
-          this.suggestions = res.suggestions
+          this.analysisResult = res
         },
-        error: () => {
-          this.suggestions = []
-          this.suggestionNotice =
-            'Sugestões automáticas indisponíveis no momento. Você ainda pode criar a nota normalmente.'
-          this.suggesting$.next(false)
+        error: (error) => {
+          this.analysisMessage = this.httpErrorService.getMessage(error)
         },
       })
   }
@@ -206,11 +198,42 @@ export class InvoiceFormComponent implements OnInit {
     this.stockConflict = null
   }
 
+  private clearAnalysisState(): void {
+    this.analysisResult = null
+    this.analysisMessage = null
+  }
+
   isStockConflictRow(item: AbstractControl): boolean {
     return (
       this.stockConflict !== null &&
       item.get('product_id')?.value === this.stockConflict.productId
     )
+  }
+
+  riskLabel(level: string | undefined): string {
+    switch ((level ?? '').toLowerCase()) {
+      case 'baixo':
+        return 'Baixo'
+      case 'medio':
+        return 'Médio'
+      case 'alto':
+        return 'Alto'
+      default:
+        return level ? level : 'Indefinido'
+    }
+  }
+
+  riskClass(level: string | undefined): string {
+    switch ((level ?? '').toLowerCase()) {
+      case 'baixo':
+        return 'risk-chip--low'
+      case 'medio':
+        return 'risk-chip--medium'
+      case 'alto':
+        return 'risk-chip--high'
+      default:
+        return 'risk-chip--neutral'
+    }
   }
 
   private buildStockConflictMessage(details: StockConflictDetails): string {

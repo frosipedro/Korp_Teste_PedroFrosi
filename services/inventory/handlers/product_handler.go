@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/Korp_Teste_PedroFrosi/inventory/models"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 type ProductHandler struct {
@@ -33,6 +35,10 @@ func (h *ProductHandler) Create(c *gin.Context) {
 		Scan(&p.ID, &p.Code, &p.Description, &p.Balance, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 
 	if err != nil {
+		if isDuplicateProductCodeError(err) {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "já existe um produto com esse código"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to create product"})
 		return
 	}
@@ -199,6 +205,15 @@ func (h *ProductHandler) DeductStock(c *gin.Context) {
 		Deducted:   req.Quantity,
 		NewBalance: newBalance,
 	})
+}
+
+func isDuplicateProductCodeError(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+
+	return string(pqErr.Code) == "23505"
 }
 
 // BatchDeductStock processes multiple deductions in a single transaction.

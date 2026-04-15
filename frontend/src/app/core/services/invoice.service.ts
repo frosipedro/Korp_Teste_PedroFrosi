@@ -6,14 +6,15 @@ import {
   CreateInvoiceRequest,
   PrintInvoiceRequest,
   PrintInvoiceResponse,
-  AISuggestionResponse,
+  AIAnalysisRequest,
+  AIAnalysisResponse,
 } from '../../shared/models/invoice.model'
 import { SUPPRESS_GLOBAL_ERROR_SNACKBAR } from '../http/request-flags'
 
 @Injectable({ providedIn: 'root' })
 export class InvoiceService {
   private readonly baseUrl = '/api/billing/invoices'
-  private readonly aiUrl = '/api/billing/ai/suggest'
+  private readonly aiUrl = '/api/billing/ai/analyze'
 
   constructor(private http: HttpClient) {}
 
@@ -41,13 +42,9 @@ export class InvoiceService {
     )
   }
 
-  suggest(description: string): Observable<AISuggestionResponse> {
-    return this.http.post<AISuggestionResponse>(
-      this.aiUrl,
-      { description },
-      {
-        context: new HttpContext().set(SUPPRESS_GLOBAL_ERROR_SNACKBAR, true),
-      },
-    )
+  analyze(payload: AIAnalysisRequest): Observable<AIAnalysisResponse> {
+    return this.http.post<AIAnalysisResponse>(this.aiUrl, payload, {
+      context: new HttpContext().set(SUPPRESS_GLOBAL_ERROR_SNACKBAR, true),
+    })
   }
 }

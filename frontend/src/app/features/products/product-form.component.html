@@ -4,6 +4,18 @@
 
 <mat-card class="form-card">
   <mat-card-content>
+    <div
+      *ngIf="submissionError"
+      class="feedback-banner feedback-banner--error"
+      role="alert"
+    >
+      <mat-icon>error_outline</mat-icon>
+      <div class="feedback-banner__content">
+        <span class="feedback-banner__title">Não foi possível salvar</span>
+        <p class="feedback-banner__message">{{ submissionError }}</p>
+      </div>
+    </div>
+
     <form [formGroup]="form" (ngSubmit)="submit()" class="form-grid">
       <mat-form-field appearance="outline">
         <mat-label>Código</mat-label>

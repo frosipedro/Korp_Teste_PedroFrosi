@@ -25,10 +25,10 @@ Sistema completo de gerenciamento de notas fiscais com arquitetura de microsserv
 
 **Stack:**
 
-- **Frontend:** Angular 21 + Angular Material + RxJS
+- **Frontend:** Angular 21.2.x + Angular Material + RxJS
 - **Backend:** Go 1.26 com Gin Framework (2 microsserviços)
 - **Banco de dados:** PostgreSQL 16
-- **IA:** Groq API (sugestão automática de produtos)
+- **IA:** Groq API (análise manual de notas fiscais)
 - **Infraestrutura:** Docker + Docker Compose + Nginx
 
 ---
@@ -49,7 +49,7 @@ Korp_Teste_PedroFrosi/
 │   │   ├── main.go
 │   │   ├── db/postgres.go
 │   │   ├── handlers/product_handler.go
-│   │   ├── models/models.go
+│   │   ├── models/model.go
 │   │   └── migrations/001_create_products.sql
 │   │
 │   └── billing/                  # Serviço de Faturamento (Go)
@@ -59,7 +59,7 @@ Korp_Teste_PedroFrosi/
 │       ├── db/postgres.go
 │       ├── handlers/invoice_handler.go
 │       ├── models/models.go
-│       ├── services/ai_suggestions.go
+│       ├── services/ai_analysis.go
 │       └── migrations/001_create_invoices.sql
 │
 └── frontend/                     # Angular
@@ -324,14 +324,22 @@ Content-Type: application/json
 
 > O `idempotency_key` deve ser um UUID único por impressão. Gere um em https://www.uuidgenerator.net. Reenviar a mesma chave retorna sucesso sem reprocessar.
 
-#### IA — Sugestão de Produtos
+#### IA — Análise de Nota Fiscal
 
 ```http
-POST http://localhost:8082/ai/suggest
+POST http://localhost:8082/ai/analyze
 Content-Type: application/json
 
 {
-  "description": "materiais de escritório"
+  "context": "materiais de escritório para a matriz",
+  "items": [
+    {
+      "product_id": 1,
+      "product_code": "PROD-001",
+      "description": "Notebook Dell Inspiron",
+      "quantity": 2
+    }
+  ]
 }
 ```
 
@@ -355,9 +363,9 @@ O serviço de billing tenta deduzir o estoque até **3 vezes** com intervalo cre
 
 Todas as chamadas HTTP passam pelo `ErrorInterceptor`, que captura erros e exibe um `MatSnackBar` com a mensagem vinda do backend (campo `error`) ou uma mensagem padrão por status HTTP.
 
-### Sugestão por IA
+### Análise por IA
 
-Ao digitar a descrição de uma nova nota fiscal, o frontend dispara automaticamente (após 600ms de pausa) uma chamada ao endpoint `/ai/suggest`, que consulta a API da Groq e retorna até 5 sugestões de produtos relacionados. As sugestões aparecem como chips clicáveis que adicionam o produto à nota.
+Na criação de uma nova nota fiscal, o usuário pode clicar em **Analisar com IA** para enviar o rascunho ao endpoint `/ai/analyze`. A IA retorna um resumo em pt-BR, categoria sugerida, nível de risco, alertas e recomendações. A análise é manual e não altera produtos, quantidades ou descrições.
 
 ---
 
